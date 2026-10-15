@@ -56,16 +56,13 @@ live there, not here.
 - A new top-level module must be added to the `Containerfile`'s `COPY` lines
   **and** pyright's `include`, or it won't ship or typecheck.
 - `.containerignore` excludes `tests/`, `scripts/`, `*.md`, `.git`.
-- The image declares no `HEALTHCHECK`; the quadlet supplies
-  `HealthCmd=python /app/healthcheck.py` plus `BITCOIN_MCP_TOKEN`.
-- `stack/deploy/install.sh` writes `$DATA_DIR/config/bitcoin-node-mcp/token.env` and
-  `upstream.env` (both mode 600) and renders the unit. It reads the RPC
-  credentials from the **running `bitcoind` container**, so it needs bitcoind
-  up on a fresh host. The env-file shapes are documented in
-  `stack/deploy/examples/bitcoin-node-mcp/`.
-- Publishing: `PublishPort=8101:8000` (host 8101 → container 8000). Open
-  `8101/tcp` in firewalld. `/health` is open and answers exactly
-  `{"status":"ok"}`.
+- The image declares no `HEALTHCHECK`; the `stack` unit supplies
+  `HealthCmd=python /app/healthcheck.py`. `stack` also reads the RPC credentials
+  out of the running `bitcoind` container and writes this server's env file(s)
+  (shape: `stack/deploy/examples/bitcoin-node-mcp/`); see that repo for the
+  unit, the env-file location and the host port.
+- The server binds `0.0.0.0:8000` and serves `/mcp` (token-gated); `/health` is
+  open and answers exactly `{"status":"ok"}`.
 
 ## Testing quirks
 

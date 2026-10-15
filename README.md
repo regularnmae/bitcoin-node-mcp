@@ -142,7 +142,10 @@ def my_tool(height: Annotated[int, Field(ge=0)]) -> str:
 ## Deploying
 
 The runtime for this server — its quadlet unit and env wiring — is owned by the
-separate [`stack`](https://github.com/regularnmae/stack) repo, not here:
+separate [`stack`](https://github.com/regularnmae/stack) repo, not here. `stack`
+supplies the bearer token, reads the node's RPC credentials into this server's
+env file, publishes the host port and provides the healthcheck; see that repo
+for the unit and env-file locations.
 
 ```sh
 cd ~/build/stack
@@ -150,11 +153,5 @@ cd ~/build/stack
 ./deploy.sh                           # the whole stack
 ```
 
-`stack/deploy.sh` opens `8101/tcp` in firewalld on a fresh host.
-`stack/deploy/install.sh` is idempotent. It writes the bearer token to
-`$DATA_DIR/config/bitcoin-node-mcp/token.env` (mode 600), reusing the token the
-running container already uses, and writes `upstream.env` by **reading the
-RPC credentials out of the running `bitcoind` container**, so nothing has to
-be copied by hand. The unit reads both via `EnvironmentFile=`. The env-file
-shapes are documented in `stack/deploy/examples/bitcoin-node-mcp/`. No secret
-is committed.
+No secret is committed here; the env-file shape is shown in
+`stack/deploy/examples/bitcoin-node-mcp/`.
