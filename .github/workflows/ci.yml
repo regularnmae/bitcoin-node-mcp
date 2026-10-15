@@ -79,8 +79,16 @@ jobs:
           podman exec "$container_id" python -c \
             'import mcp, uvicorn, rpc; print("deps present")'
           podman exec "$container_id" python -c "
-          import urllib.request, urllib.error
-          urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)
+          import time, urllib.request, urllib.error
+          deadline = time.time() + 30
+          while True:
+              try:
+                  urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)
+                  break
+              except Exception:
+                  if time.time() > deadline:
+                      raise
+                  time.sleep(0.5)
           try:
               urllib.request.urlopen(urllib.request.Request(
                   'http://127.0.0.1:8000/mcp', data=b'{}', method='POST',
