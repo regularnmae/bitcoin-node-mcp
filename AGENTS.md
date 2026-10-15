@@ -3,7 +3,9 @@
 Flat three-module Python MCP server (not a package). `server.py` is the app —
 config, tools, auth middleware; `rpc.py` is its **stdlib-only** Bitcoin Core
 JSON-RPC client; `healthcheck.py` is the container healthcheck probe. Shipped
-as a rootless podman/quadlet container, quadlet unit under `deploy/`. Toolchain
+as a rootless podman/quadlet container; the runtime — its quadlet unit, the
+`npm-network` it shares and the env wiring — is owned by the `stack` repo
+(https://github.com/regularnmae/stack), not here. Toolchain
 is uv only — no pip in CI, in the build, or in the image (CI asserts it).
 `mcp` is the 2.x line: the app object is `MCPServer` (the v2 rename of
 `FastMCP`).
@@ -24,8 +26,12 @@ uv run python scripts/smoke.py # boots the real app on a free loopback port: /he
 uv add <pkg>                   # edits pyproject.toml AND re-locks — commit the uv.lock change
 uv lock --check                # CI drift gate
 podman build -t localhost/bitcoin-node-mcp:latest .   # multi-stage Containerfile
-./deploy.sh                    # builds, restarts bitcoin-node-mcp.service, waits for "(healthy)"
 ```
+
+Deployment is owned by the `stack` repo: `cd ~/build/stack && ./deploy.sh --only bitcoin-node-mcp`
+rebuilds the image, restarts `bitcoin-node-mcp.service` and waits for
+"(healthy)"; `./deploy.sh` deploys the whole stack. The unit and `npm-network`
+live there, not here.
 
 ## Facts that are easy to get wrong
 
@@ -49,14 +55,14 @@ podman build -t localhost/bitcoin-node-mcp:latest .   # multi-stage Containerfil
   contract.
 - A new top-level module must be added to the `Containerfile`'s `COPY` lines
   **and** pyright's `include`, or it won't ship or typecheck.
-- `.containerignore` excludes `tests/`, `scripts/`, `deploy/`, `*.md`, `.git`.
+- `.containerignore` excludes `tests/`, `scripts/`, `*.md`, `.git`.
 - The image declares no `HEALTHCHECK`; the quadlet supplies
   `HealthCmd=python /app/healthcheck.py` plus `BITCOIN_MCP_TOKEN`.
-- `deploy/install.sh` writes `~/.config/bitcoin-node-mcp/token.env` and
+- `stack/deploy/install.sh` writes `~/.config/bitcoin-node-mcp/token.env` and
   `upstream.env` (both mode 600) and symlinks the unit. It reads the RPC
   credentials from the **running `bitcoind` container**, so it needs bitcoind
-  up on a fresh host. `npm-network.network` is symlinked only if no other repo
-  already provided it.
+  up on a fresh host. The env-file shapes are documented in
+  `stack/deploy/examples/bitcoin-node-mcp/`.
 - Publishing: `PublishPort=8101:8000` (host 8101 → container 8000). Open
   `8101/tcp` in firewalld. `/health` is open and answers exactly
   `{"status":"ok"}`.

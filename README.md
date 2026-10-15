@@ -141,19 +141,20 @@ def my_tool(height: Annotated[int, Field(ge=0)]) -> str:
 
 ## Deploying
 
-`deploy/` owns the quadlet unit and `install.sh`. On the target host:
+The runtime for this server — its quadlet unit and env wiring — is owned by the
+separate [`stack`](https://github.com/regularnmae/stack) repo, not here:
 
 ```sh
-cd ~/build && git clone <url> bitcoin-node-mcp && cd bitcoin-node-mcp
-./deploy/install.sh   # symlink the unit, write token.env + upstream.env, reload
-./deploy.sh           # install + build + restart + wait healthy
-sudo firewall-cmd --permanent --add-port=8101/tcp && sudo firewall-cmd --reload
+cd ~/build/stack
+./deploy.sh --only bitcoin-node-mcp   # build the image, restart, wait for "(healthy)"
+./deploy.sh                           # the whole stack
 ```
 
-`install.sh` is idempotent. It writes the bearer token to
+`stack/deploy.sh` opens `8101/tcp` in firewalld on a fresh host.
+`stack/deploy/install.sh` is idempotent. It writes the bearer token to
 `~/.config/bitcoin-node-mcp/token.env` (mode 600), reusing the token the
 running container already uses, and writes `upstream.env` by **reading the
 RPC credentials out of the running `bitcoind` container**, so nothing has to
-be copied by hand. The unit reads both via `EnvironmentFile=`. No secret is
-committed — only `deploy/*.example` are. Roll back with
-`git checkout <older-sha> && ./deploy.sh`.
+be copied by hand. The unit reads both via `EnvironmentFile=`. The env-file
+shapes are documented in `stack/deploy/examples/bitcoin-node-mcp/`. No secret
+is committed.
