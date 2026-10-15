@@ -58,8 +58,8 @@ live there, not here.
 - `.containerignore` excludes `tests/`, `scripts/`, `*.md`, `.git`.
 - The image declares no `HEALTHCHECK`; the quadlet supplies
   `HealthCmd=python /app/healthcheck.py` plus `BITCOIN_MCP_TOKEN`.
-- `stack/deploy/install.sh` writes `~/.config/bitcoin-node-mcp/token.env` and
-  `upstream.env` (both mode 600) and symlinks the unit. It reads the RPC
+- `stack/deploy/install.sh` writes `$DATA_DIR/config/bitcoin-node-mcp/token.env` and
+  `upstream.env` (both mode 600) and renders the unit. It reads the RPC
   credentials from the **running `bitcoind` container**, so it needs bitcoind
   up on a fresh host. The env-file shapes are documented in
   `stack/deploy/examples/bitcoin-node-mcp/`.

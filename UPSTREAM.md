@@ -4,7 +4,7 @@ This repo owns only the **application** — its Python code, tests, CI and
 `Containerfile`. It ships no unit and no env file. The runtime is owned by
 [`stack`](https://github.com/regularnmae/stack), which holds every quadlet unit
 and the `npm-network.network` the MCP servers share, and renders the
-`~/.config/<name>/*.env` files. See `stack/deploy/` and
+`$DATA_DIR/config/<name>/*.env` files. See `stack/deploy/` and
 `stack/deploy/examples/bitcoin-node-mcp/`.
 
 It does **not** own `bitcoind` either. The node's unit is owned by `stack`,
@@ -42,4 +42,4 @@ cd ~/build/stack
 
 `stack/deploy/install.sh` reads the RPC credentials out of the running
 `bitcoind` container, so bitcoind should be up first. Secrets land in
-`~/.config/bitcoin-node-mcp/`; `./deploy.sh` opens `8101/tcp` in firewalld.
+`$DATA_DIR/config/bitcoin-node-mcp/`; `./deploy.sh` opens `8101/tcp` in firewalld.

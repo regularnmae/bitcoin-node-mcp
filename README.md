@@ -152,7 +152,7 @@ cd ~/build/stack
 
 `stack/deploy.sh` opens `8101/tcp` in firewalld on a fresh host.
 `stack/deploy/install.sh` is idempotent. It writes the bearer token to
-`~/.config/bitcoin-node-mcp/token.env` (mode 600), reusing the token the
+`$DATA_DIR/config/bitcoin-node-mcp/token.env` (mode 600), reusing the token the
 running container already uses, and writes `upstream.env` by **reading the
 RPC credentials out of the running `bitcoind` container**, so nothing has to
 be copied by hand. The unit reads both via `EnvironmentFile=`. The env-file
