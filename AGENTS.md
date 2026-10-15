@@ -25,7 +25,7 @@ uv run pytest -q               # 34 tests, ~0.1s, no network
 uv run python scripts/smoke.py # boots the real app on a free loopback port: /health, 401s, handshake
 uv add <pkg>                   # edits pyproject.toml AND re-locks — commit the uv.lock change
 uv lock --check                # CI drift gate
-podman build -t localhost/bitcoin-node-mcp:latest .   # multi-stage Containerfile
+podman build -t localhost/bitcoin-node-mcp:latest .   # single-stage Containerfile
 ```
 
 Deployment is owned by the `stack` repo: `cd ~/build/stack && ./deploy.sh --only bitcoin-node-mcp`
