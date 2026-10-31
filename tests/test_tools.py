@@ -2,9 +2,9 @@
 
 The fake records the RPC call each tool made, so these tests pin both the
 parameter shaping (a blockhash appended only when given, include_mempool
-forwarded) and the two conditions that matter on this node: txindex is off,
-so a confirmed transaction without a blockhash must say so, and blocks
-below pruneheight are gone.
+forwarded) and the two error paths worth wording: a -5 from a txindex that
+has not caught up must explain the blockhash fallback, and a pruned reply
+must be reported plainly rather than leaked raw.
 """
 
 from __future__ import annotations

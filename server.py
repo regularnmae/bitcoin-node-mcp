@@ -49,12 +49,13 @@ mcp = MCPServer(
     "Bitcoin Node",
     instructions=(
         "Read-only access to this host's Bitcoin Core node over JSON-RPC. "
-        "Start with get_blockchain_info for chain, height, sync progress "
-        "and the prune height. The node is pruned and run with txindex "
-        "disabled, so get_raw_transaction needs an explicit blockhash for "
-        "a confirmed transaction (use get_block_hash then get_block with "
-        "verbosity=2 to find it), and blocks below pruneheight are not on "
-        "disk. Nothing here moves funds or changes the chain."
+        "Start with get_blockchain_info for chain, height and sync progress. "
+        "This is a full node with txindex enabled, so get_raw_transaction "
+        "resolves a confirmed transaction by txid alone. If it answers -5 the "
+        "txindex has not reached that transaction yet (it backfills in the "
+        "background): pass the blockhash instead, found by walking from "
+        "get_block_hash(height) to get_block(hash, verbosity=2). Nothing here "
+        "moves funds or changes the chain."
     ),
     log_level=_log_level(),
 )
@@ -146,9 +147,9 @@ def get_block(blockhash: str, verbosity: Literal[1, 2] = 1) -> str:
     """Return a block by hash.
 
     At verbosity 1 the block's `tx` field is a list of txids; at verbosity
-    2 each entry is the full transaction, which is how a txid is located
-    on a node with txindex disabled. A block below the node's prune height
-    has been discarded and cannot be returned.
+    2 each entry is the full transaction. This node keeps every block, so
+    any hash from get_block_hash is available; verbosity 2 on a busy block
+    returns several megabytes.
 
     Args:
         blockhash: Block hash, as returned by get_block_hash.
@@ -157,6 +158,8 @@ def get_block(blockhash: str, verbosity: Literal[1, 2] = 1) -> str:
     try:
         return _render(rpc.call("getblock", [blockhash, verbosity]))
     except RPCError as err:
+        # Retained as defence: the target node is unpruned, but a repointed
+        # server may not be, and a plain "Block not available" reads badly.
         if err.code == -1 and "pruned" in err.message.lower():
             logger.warning("getblock %s below prune height", blockhash)
             return (
@@ -186,15 +189,15 @@ def get_block_header(blockhash: str, verbose: bool = True) -> str:
 def get_raw_transaction(txid: str, blockhash: str = "", verbose: bool = True) -> str:
     """Return a transaction by id.
 
-    This node runs with txindex disabled, so a confirmed transaction can
-    only be fetched when its `blockhash` is supplied; without one only a
-    transaction still in the mempool resolves. Use get_block_hash and
-    get_block(..., verbosity=2) to find the block first.
+    This node has txindex enabled, so a confirmed transaction resolves by
+    txid alone. Pass `blockhash` only as a fallback: while the index is
+    still backfilling it answers -5, and the block is then found with
+    get_block_hash(height) and get_block(..., verbosity=2).
 
     Args:
         txid: Transaction id (hex).
-        blockhash: The block the transaction is in. Required for a
-            confirmed transaction on this node.
+        blockhash: The block the transaction is in. Only needed while the
+            txindex is backfilling or disabled; the call then answers -5.
         verbose: True (default) for the decoded transaction, False for the
             serialised hex.
     """
@@ -205,13 +208,13 @@ def get_raw_transaction(txid: str, blockhash: str = "", verbose: bool = True) ->
         return _render(rpc.call("getrawtransaction", params))
     except RPCError as err:
         if err.code == -5 and not blockhash:
-            logger.info("getrawtransaction %s has no blockhash and no txindex", txid)
+            logger.info("getrawtransaction %s did not resolve via txindex", txid)
             return (
-                "No such transaction in the mempool. This node has txindex "
-                "disabled, so a confirmed transaction can only be fetched by "
-                "supplying its `blockhash`. Use get_block_hash(height) then "
-                "get_block(hash, verbosity=2) to locate the block, then call "
-                "get_raw_transaction again with that blockhash."
+                "The node has no mempool transaction with that id, and its "
+                "txindex did not resolve it either: the index is either still "
+                "backfilling or disabled. Supply the transaction's `blockhash` "
+                "-- find it with get_block_hash(height) then "
+                "get_block(hash, verbosity=2), then call again with it."
             )
         return _error_text(err)
     except Exception as err:  # noqa: BLE001 - surfaced as text, never hidden

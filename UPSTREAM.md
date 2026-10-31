@@ -21,17 +21,18 @@ The server assumes a bitcoind reachable on the podman network:
 | Container / address | `bitcoind:8332` (JSON-RPC, no host publish) |
 | Network | `npm-network` |
 | Auth | rpcuser/rpcpassword (from bitcoind's own `bitcoin.conf`) |
-| Config | **pruned**, **`txindex=0`** |
+| Config | **full node**, **`txindex=1`** |
 
-Two consequences shape the tools:
+One property still shapes the tools:
 
-- **`txindex=0`** — `get_raw_transaction` can only resolve a confirmed
-  transaction when given its `blockhash`; without one only mempool transactions
-  resolve. There is no `get_tx_out_proof` tool for the same reason.
-- **pruned** — `get_block` below the node's `pruneheight` is unavailable.
+- **`txindex` backfills once enabled** — no `-reindex` is needed, but until the
+  index catches up `get_raw_transaction` answers `-5` for recent transactions
+  and needs their `blockhash`. The tool keeps that guidance for exactly this
+  window, and `get_block` keeps a pruned-error branch as defence in case this
+  server is ever repointed at a pruned node.
 
-If you ever point this server at a different node, keep those two properties in
-mind (or `aggregate` the tool schemas change).
+Address history stays out of reach either way: bitcoind has no address index,
+so an Electrum server (Fulcrum) is the thing to add next to it, not a tool.
 
 ## Deploy
 

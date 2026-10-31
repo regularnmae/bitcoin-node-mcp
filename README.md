@@ -10,15 +10,15 @@ Thirteen tools, all read-only:
 
 | Tool | What it does |
 | --- | --- |
-| `get_blockchain_info` | Chain, height, sync progress, difficulty, and — when pruned — `pruneheight` |
+| `get_blockchain_info` | Chain, height, sync progress, difficulty and size on disk |
 | `get_block_hash` | Block hash at a height |
 | `get_block` | A block by hash; verbosity 1 lists txids, 2 returns full transactions |
 | `get_block_header` | A block header by block hash |
-| `get_raw_transaction` | A transaction by id; needs a `blockhash` for confirmed txs (see below) |
+| `get_raw_transaction` | A transaction by id; a `blockhash` only while the index backfills |
 | `decode_raw_transaction` | Decode a serialised (hex) transaction |
 | `get_mempool_info` | Mempool statistics |
 | `get_raw_mempool` | Transaction ids currently in the mempool |
-| `get_tx_out` | An unspent output (UTXO-set read; works without txindex) |
+| `get_tx_out` | An unspent output (UTXO-set read, independent of txindex) |
 | `get_network_info` | Version, connections, relay fee |
 | `get_peer_info` | One entry per connected peer |
 | `estimate_smart_fee` | Fee rate for a confirmation target |
@@ -28,29 +28,29 @@ Each tool returns text — a scalar as-is, an object as pretty-printed JSON.
 They are all marked read-only and open-world, so a well-behaved client skips
 the confirmation prompt.
 
-## The pruned, txindex-less node
+## The node
 
-This server is written for a node that is **pruned** and runs with **txindex
-disabled**, which is the configuration on the target host. That shapes two
-tools and is worth understanding before you use them:
+The target is a **full node with `txindex` enabled**, so a confirmed
+transaction resolves from its txid alone and every block is on disk. Two
+details are still worth knowing:
 
-- **`get_raw_transaction`** can only resolve a confirmed transaction when you
-  pass its `blockhash`. Without one, only a transaction still in the mempool
-  resolves; for a confirmed txid the node answers `-5`, and the tool turns
-  that into a message telling you to supply the block. Find the block with
-  `get_block_hash(height)` then `get_block(hash, verbosity=2)`, which returns
-  each transaction in the block.
-- **`get_block`** cannot return a block below the node's `pruneheight`; its
-  data has been discarded. The tool reports that plainly instead of leaking
-  `-1 Block not available (pruned data)`. Read the current floor from
-  `get_blockchain_info`.
+- **`txindex` backfills.** Turning it on does not need `-reindex`: Core reads
+  the blocks it already has and builds the index in the background, which takes
+  hours. Until it catches up, `get_raw_transaction` answers `-5` for a recent
+  transaction; the tool turns that into a message telling you to supply the
+  block, which you find with `get_block_hash(height)` then
+  `get_block(hash, verbosity=2)`. `getindexinfo` shows the build progress.
+- **`verbosity=2` is heavy.** A busy block holds thousands of transactions, so
+  the full list runs to megabytes. Prefer verbosity 1 unless you are hunting a
+  txid the index cannot resolve.
 
-`get_tx_out` is unaffected: it reads the UTXO set, not the transaction index.
+`get_block` still special-cases the `-1 Block not available (pruned data)`
+reply in case the server is ever pointed at a pruned node, but this one keeps
+the whole chain.
 
-> Bitcoin Core will not run `-txindex` on a pruned node (`-help`: *"incompatible
-> with -txindex ... reverting this setting requires re-downloading the entire
-> blockchain"*), so enabling it here would mean a new disk and a full chain
-> re-download. The tools are shaped to the node instead.
+Address history is the one thing a node cannot answer: bitcoind has no address
+index, so "which transactions touched this address" needs an Electrum server
+(Fulcrum) or another indexer beside it.
 
 ## Running it
 

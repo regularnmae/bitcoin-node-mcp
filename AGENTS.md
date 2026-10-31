@@ -35,12 +35,13 @@ live there, not here.
 
 ## Facts that are easy to get wrong
 
-- **The node is pruned with `txindex=0`.** This is not incidental — it is why
-  `get_raw_transaction` takes an optional `blockhash`, why `-5` is turned into
-  guidance, why `get_block` special-cases the pruned error, and why there is no
-  `get_tx_out_proof` tool. Do not "fix" these by adding txindex: Core forbids
-  `-txindex` on a pruned node, and the host has neither the disk nor the chain
-  for it. See README.
+- **The node is a full node with `txindex=1`.** It was pruned with `txindex=0`
+  when the tools were written, and that history is still visible in them.
+  `get_raw_transaction` keeps its optional `blockhash` and turns `-5` into
+  guidance because a newly enabled txindex backfills in the background and
+  cannot resolve recent transactions until it catches up; `get_block` keeps the
+  pruned-error branch as defence for a repointed node. Do not describe the node
+  as pruned in docs or tool text. See README.
 - `rpc.py` is **stdlib-only on purpose** (urllib, not httpx2). It raises one
   exception type, `RPCError`, for a JSON-RPC error, an HTTP status and a
   transport failure alike; `code` is Core's numeric code or None. Tests fake
