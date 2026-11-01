@@ -51,6 +51,30 @@ async def test_index_info_forwards_index_name_and_verbose(call, fake_rpc) -> Non
 
 
 @pytest.mark.anyio
+async def test_block_stats_forwards_height(call, fake_rpc) -> None:
+    fake_rpc.answers["getblockstats"] = {"height": 974130, "avgfeerate": 8}
+    text = await call("get_block_stats", height=974130)
+    assert json.loads(text)["avgfeerate"] == 8
+    assert fake_rpc.calls == [("getblockstats", [974130])]
+
+
+@pytest.mark.anyio
+async def test_mempool_entry_is_forwarded(call, fake_rpc) -> None:
+    fake_rpc.answers["getmempoolentry"] = {"vsize": 141, "fees": {"base": 0.00001}}
+    text = await call("get_mempool_entry", txid="ab" * 32)
+    assert json.loads(text)["vsize"] == 141
+    assert fake_rpc.calls == [("getmempoolentry", ["ab" * 32])]
+
+
+@pytest.mark.anyio
+async def test_mempool_entry_missing_points_at_the_confirmed_lookup(call, fake_rpc) -> None:
+    fake_rpc.answers["getmempoolentry"] = RPCError("Transaction not in mempool", -5)
+    text = await call("get_mempool_entry", txid="ab" * 32)
+    assert "mempool" in text
+    assert "get_raw_transaction" in text
+
+
+@pytest.mark.anyio
 async def test_raw_transaction_without_blockhash_explains_txindex(
     call, fake_rpc
 ) -> None:
@@ -83,6 +107,36 @@ async def test_tx_out_forwards_every_argument(call, fake_rpc) -> None:
     fake_rpc.answers["gettxout"] = {"value": 1.5}
     await call("get_tx_out", txid="ab" * 32, n=2, include_mempool=False)
     assert fake_rpc.calls == [("gettxout", ["ab" * 32, 2, False])]
+
+
+@pytest.mark.anyio
+async def test_spent_tx_out_is_explained_not_null(call, fake_rpc) -> None:
+    # A callable, because the fake treats an `answers` value of None as
+    # "no script for this method" rather than a null result.
+    fake_rpc.answers["gettxout"] = lambda _params: None
+    text = await call("get_tx_out", txid="ab" * 32, n=0)
+    assert text != "null"
+    assert "spent" in text
+    assert "mempool" in text
+
+
+@pytest.mark.anyio
+async def test_fee_estimate_without_data_becomes_a_sentence(call, fake_rpc) -> None:
+    fake_rpc.answers["estimatesmartfee"] = {
+        "errors": ["Insufficient data or no feerate found"],
+        "blocks": 6,
+    }
+    text = await call("estimate_smart_fee")
+    assert "no fee estimate" in text
+    assert "Insufficient data" in text
+    assert "get_block_stats" in text
+
+
+@pytest.mark.anyio
+async def test_fee_estimate_with_a_rate_is_still_json(call, fake_rpc) -> None:
+    fake_rpc.answers["estimatesmartfee"] = {"feerate": 0.00002, "blocks": 6}
+    text = await call("estimate_smart_fee")
+    assert json.loads(text)["feerate"] == 0.00002
 
 
 @pytest.mark.anyio

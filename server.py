@@ -55,8 +55,9 @@ mcp = MCPServer(
         "txindex has not reached that transaction yet (it backfills in the "
         "background): get_index_info reports how far it has got, and passing "
         "the blockhash instead works now -- find it by walking from "
-        "get_block_hash(height) to get_block(hash, verbosity=2). Nothing here "
-        "moves funds or changes the chain."
+        "get_block_hash(height) to get_block(hash, verbosity=2). For an "
+        "unconfirmed transaction, get_mempool_entry answers whether this node "
+        "has seen it. Nothing here moves funds or changes the chain."
     ),
     log_level=_log_level(),
 )
@@ -104,19 +105,24 @@ def _error_text(err: RPCError) -> str:
     return f"{err.message} (RPC error {err.code})"
 
 
-def _call(method: str, params: list[Any] | None = None) -> str:
+def _call(method: str, params: list[Any] | None = None, *, null_text: str = "") -> str:
     """Run one RPC and render the result, or a readable error.
 
     Every tool whose failures need no special-casing goes through here.
+    `null_text`, when set, replaces a bare `null` result with a sentence --
+    for the RPCs where null is a real answer rather than a failure.
     """
     try:
-        return _render(rpc.call(method, params))
+        result = rpc.call(method, params)
     except RPCError as err:
         logger.warning("%s failed: %s", method, err.message)
         return _error_text(err)
     except Exception as err:  # noqa: BLE001 - surfaced as text, never hidden
         logger.exception("unexpected error in %s", method)
         return f"Unexpected error calling {method}: {err}"
+    if result is None and null_text:
+        return null_text
+    return _render(result)
 
 
 @mcp.tool(structured_output=False, annotations=_NODE_TOOLS)
@@ -207,6 +213,22 @@ def get_block_header(blockhash: str, verbose: bool = True) -> str:
 
 
 @mcp.tool(structured_output=False, annotations=_NODE_TOOLS)
+def get_block_stats(height: Annotated[int, Field(ge=0)]) -> str:
+    """Return fee and transaction statistics for one block.
+
+    The context for judging a fee rate: min/max/median/mean feerate, total
+    fees, transaction count, size and weight, and the UTXO-set deltas. Where
+    estimate_smart_fee reports the node's model, this reports what a block
+    actually paid.
+
+    Args:
+        height: Block height. From a block hash, get_block returns the
+            height in its `height` field.
+    """
+    return _call("getblockstats", [height])
+
+
+@mcp.tool(structured_output=False, annotations=_NODE_TOOLS)
 def get_raw_transaction(txid: str, blockhash: str = "", verbose: bool = True) -> str:
     """Return a transaction by id.
 
@@ -244,6 +266,35 @@ def get_raw_transaction(txid: str, blockhash: str = "", verbose: bool = True) ->
 
 
 @mcp.tool(structured_output=False, annotations=_NODE_TOOLS)
+def get_mempool_entry(txid: str) -> str:
+    """Return one unconfirmed transaction's mempool entry.
+
+    Answers whether an unconfirmed transaction has reached this node, and
+    what it pays: fee, vsize, ancestor and descendant counts and fees (the
+    figure a CPFP child would need to pay against), and the replacement
+    flag. A confirmed transaction is not in the mempool -- get_raw_transaction
+    resolves those.
+
+    Args:
+        txid: Transaction id (hex).
+    """
+    try:
+        return _render(rpc.call("getmempoolentry", [txid]))
+    except RPCError as err:
+        if err.code == -5:
+            logger.info("getmempoolentry %s is not in the mempool", txid)
+            return (
+                "That transaction is not in this node's mempool: it has not "
+                "been seen here, has already been mined, or was evicted. Call "
+                "get_raw_transaction(txid) to check whether it is confirmed."
+            )
+        return _error_text(err)
+    except Exception as err:  # noqa: BLE001 - surfaced as text, never hidden
+        logger.exception("unexpected error in getmempoolentry")
+        return f"Unexpected error calling getmempoolentry: {err}"
+
+
+@mcp.tool(structured_output=False, annotations=_NODE_TOOLS)
 def decode_raw_transaction(hexstring: str) -> str:
     """Decode a serialised (hex) transaction into a JSON object.
 
@@ -278,14 +329,23 @@ def get_tx_out(
     """Return details of an unspent transaction output (the UTXO set).
 
     Works without txindex: this reads the UTXO set, not the transaction
-    index.
+    index. A null answer means the output is spent (or never existed), or
+    -- with include_mempool=False -- that it is only in the mempool.
 
     Args:
         txid: Transaction id (hex).
         n: Output index (vout), 0-based.
         include_mempool: Whether to include the mempool (default True).
     """
-    return _call("gettxout", [txid, n, include_mempool])
+    return _call(
+        "gettxout",
+        [txid, n, include_mempool],
+        null_text=(
+            "No unspent output with that transaction id and index: it has "
+            "been spent, never existed, or -- because include_mempool was "
+            "False -- is currently only in the mempool."
+        ),
+    )
 
 
 @mcp.tool(structured_output=False, annotations=_NODE_TOOLS)
@@ -313,7 +373,23 @@ def estimate_smart_fee(
         mode: Estimation mode: "conservative", "economical", or "unset"
             for the node's default.
     """
-    return _call("estimatesmartfee", [conf_target, mode])
+    try:
+        result = rpc.call("estimatesmartfee", [conf_target, mode])
+    except RPCError as err:
+        logger.warning("estimatesmartfee failed: %s", err.message)
+        return _error_text(err)
+    except Exception as err:  # noqa: BLE001 - surfaced as text, never hidden
+        logger.exception("unexpected error in estimatesmartfee")
+        return f"Unexpected error calling estimatesmartfee: {err}"
+    if isinstance(result, dict) and "feerate" not in result and result.get("errors"):
+        return (
+            f"The node has no fee estimate for {conf_target} blocks: "
+            + "; ".join(str(error) for error in result["errors"])
+            + ". It needs a fuller set of recent blocks to model one; call "
+            "get_block_stats on a recent height to see what blocks actually "
+            "paid."
+        )
+    return _render(result)
 
 
 @mcp.tool(structured_output=False, annotations=_NODE_TOOLS)

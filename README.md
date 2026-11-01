@@ -6,7 +6,7 @@ No keys, no wallet, no chain writes: nothing here can move funds or change
 the chain. It shares the podman `npm-network` with the node and reaches it by
 container name.
 
-Fourteen tools, all read-only:
+Sixteen tools, all read-only:
 
 | Tool | What it does |
 | --- | --- |
@@ -15,14 +15,16 @@ Fourteen tools, all read-only:
 | `get_block_hash` | Block hash at a height |
 | `get_block` | A block by hash; verbosity 1 lists txids, 2 returns full transactions |
 | `get_block_header` | A block header by block hash |
+| `get_block_stats` | Per-block feerate, fee, size and UTXO-delta statistics |
 | `get_raw_transaction` | A transaction by id; a `blockhash` only while the index backfills |
+| `get_mempool_entry` | One unconfirmed transaction's fee, vsize and ancestors |
 | `decode_raw_transaction` | Decode a serialised (hex) transaction |
 | `get_mempool_info` | Mempool statistics |
 | `get_raw_mempool` | Transaction ids currently in the mempool |
-| `get_tx_out` | An unspent output (UTXO-set read, independent of txindex) |
+| `get_tx_out` | An unspent output (UTXO-set read, independent of txindex); says so when spent |
 | `get_network_info` | Version, connections, relay fee |
 | `get_peer_info` | One entry per connected peer |
-| `estimate_smart_fee` | Fee rate for a confirmation target |
+| `estimate_smart_fee` | Fee rate for a confirmation target; prose when the node has no estimate |
 | `get_difficulty` | Proof-of-work difficulty |
 
 Each tool returns text — a scalar as-is, an object as pretty-printed JSON.
@@ -44,6 +46,11 @@ details are still worth knowing:
 - **`verbosity=2` is heavy.** A busy block holds thousands of transactions, so
   the full list runs to megabytes. Prefer verbosity 1 unless you are hunting a
   txid the index cannot resolve.
+
+Fee questions split in two: `estimate_smart_fee` is the node's own model, and
+`get_block_stats` is what a block actually paid. When the node has too little
+history to estimate, it answers with a sentence pointing at the latter instead
+of a bare `errors` array.
 
 `get_block` still special-cases the `-1 Block not available (pruned data)`
 reply in case the server is ever pointed at a pruned node, but this one keeps
@@ -108,7 +115,7 @@ Dependencies are managed with [uv](https://docs.astral.sh/uv/) from
 `pyproject.toml`; `uv.lock` is the exact closure (versions *and* hashes).
 
 ```sh
-uv run pytest -q                # 37 tests, ~0.2s, no network
+uv run pytest -q                # 49 tests, ~0.2s, no network
 uv run ruff check .             # lint
 uv run pyright                  # typecheck
 uv run python scripts/smoke.py  # boots the real app on loopback
