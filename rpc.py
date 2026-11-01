@@ -15,6 +15,7 @@ message that tells the model what to do instead.
 """
 
 import base64
+import itertools
 import json
 import urllib.error
 import urllib.request
@@ -61,13 +62,22 @@ class BitcoinRPC:
             self._auth = "Basic " + base64.b64encode(raw).decode()
         else:
             self._auth = ""
-        self._id = 0
+        # Tools are sync and run on worker threads, where `self._id += 1`
+        # can hand two concurrent calls the same id. next() on a count is
+        # atomic under the GIL, and ids only have to be unique per client.
+        self._id = itertools.count(1)
 
-    def call(self, method: str, params: list[Any] | None = None) -> Any:
-        """Invoke `method`, returning `result` or raising `RPCError`."""
-        self._id += 1
+    def call(
+        self, method: str, params: list[Any] | None = None, timeout: float | None = None
+    ) -> Any:
+        """Invoke `method`, returning `result` or raising `RPCError`.
+
+        `timeout` overrides the endpoint timeout for this one call, which is
+        what a readiness probe wants.
+        """
+        effective_timeout = self._timeout if timeout is None else timeout
         payload = json.dumps(
-            {"jsonrpc": "2.0", "id": self._id, "method": method, "params": params or []}
+            {"jsonrpc": "2.0", "id": next(self._id), "method": method, "params": params or []}
         ).encode()
         headers = {"Content-Type": "application/json"}
         if self._auth:
@@ -76,8 +86,9 @@ class BitcoinRPC:
             self._url, data=payload, headers=headers, method="POST"
         )
         try:
-            with urllib.request.urlopen(request, timeout=self._timeout) as response:
-                body = json.loads(response.read().decode())
+            with urllib.request.urlopen(request, timeout=effective_timeout) as response:
+                raw = response.read()
+                status = response.status
         except urllib.error.HTTPError as err:
             # Core answers application errors with a JSON body even when the
             # status is non-2xx, so read it before falling back to the code.
@@ -95,6 +106,21 @@ class BitcoinRPC:
             raise RPCError(f"HTTP {err.code} from the node") from err
         except urllib.error.URLError as err:
             raise RPCError(f"cannot reach the node at {self._url}: {err.reason}") from err
+        except TimeoutError as err:
+            # A read timeout is a bare TimeoutError, not a URLError, so it
+            # would otherwise escape the one-exception contract above.
+            raise RPCError(
+                f"the node did not answer within {effective_timeout:g}s"
+            ) from err
+
+        try:
+            body = json.loads(raw.decode())
+        except (UnicodeDecodeError, json.JSONDecodeError) as err:
+            raise RPCError(
+                f"the node returned a non-JSON body (HTTP {status})"
+            ) from err
+        if not isinstance(body, dict):
+            raise RPCError(f"the node returned an unexpected JSON body (HTTP {status})")
 
         if body.get("error"):
             raise RPCError(

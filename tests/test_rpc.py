@@ -23,6 +23,8 @@ URL = "http://bitcoind:8332"
 
 
 class _Response:
+    status = 200
+
     def __init__(self, body: bytes) -> None:
         self._body = body
 
@@ -36,13 +38,13 @@ class _Response:
         return False
 
 
-def _install(monkeypatch, *, body=None, error=None, captured=None):
+def _install(monkeypatch, *, body=None, error=None, captured=None, raw=None):
     def fake_urlopen(request, timeout=None):
         if captured is not None:
             captured.append(request)
         if error is not None:
             raise error
-        return _Response(json.dumps(body).encode())
+        return _Response(raw if raw is not None else json.dumps(body).encode())
 
     monkeypatch.setattr(rpc_module.urllib.request, "urlopen", fake_urlopen)
 
@@ -94,6 +96,31 @@ def test_unreachable_node_is_named(monkeypatch) -> None:
     with pytest.raises(RPCError) as excinfo:
         BitcoinRPC(URL).call("getblockcount")
     assert "cannot reach the node" in excinfo.value.message
+
+
+def test_read_timeout_is_named(monkeypatch) -> None:
+    _install(monkeypatch, error=TimeoutError("timed out"))
+    with pytest.raises(RPCError) as excinfo:
+        BitcoinRPC(URL, timeout=2.5).call("getblockcount")
+    assert excinfo.value.code is None
+    assert "did not answer within 2.5s" in excinfo.value.message
+
+
+def test_non_json_body_is_named(monkeypatch) -> None:
+    _install(monkeypatch, raw=b"<html>502 Bad Gateway</html>")
+    with pytest.raises(RPCError) as excinfo:
+        BitcoinRPC(URL).call("getblockcount")
+    assert "non-JSON body" in excinfo.value.message
+
+
+def test_request_ids_increment(monkeypatch) -> None:
+    captured: list = []
+    _install(monkeypatch, body={"result": 1, "error": None}, captured=captured)
+    client = BitcoinRPC(URL)
+    for _ in range(3):
+        client.call("getblockcount")
+    ids = [json.loads(req.data)["id"] for req in captured]
+    assert ids == [1, 2, 3]
 
 
 def test_basic_auth_attached_only_with_credentials(monkeypatch) -> None:
