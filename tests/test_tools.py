@@ -59,6 +59,31 @@ async def test_block_stats_forwards_height(call, fake_rpc) -> None:
 
 
 @pytest.mark.anyio
+async def test_fee_history_summarises_the_default_window(call, fake_rpc) -> None:
+    fake_rpc.answers["getblockchaininfo"] = {"blocks": 100}
+    fake_rpc.answers["getblockstats"] = lambda params: {
+        "height": params[0],
+        "avgfeerate": 10,
+        "feerate_percentiles": [4, 6, 8, 10, 12],
+        "txs": 2000,
+    }
+    payload = json.loads(await call("get_fee_history"))
+    assert payload["blocks"] == 24
+    assert (payload["from_height"], payload["to_height"]) == (77, 100)
+    assert payload["avg_feerate"] == 10
+    assert payload["history"][0]["median_feerate"] == 8
+
+
+@pytest.mark.anyio
+async def test_fee_history_reports_a_block_lookup_failure(call, fake_rpc) -> None:
+    fake_rpc.answers["getblockchaininfo"] = {"blocks": 100}
+    fake_rpc.answers["getblockstats"] = RPCError("Block height out of range", -8)
+    text = await call("get_fee_history", blocks=4)
+    assert "out of range" in text
+    assert "-8" in text
+
+
+@pytest.mark.anyio
 async def test_mempool_entry_is_forwarded(call, fake_rpc) -> None:
     fake_rpc.answers["getmempoolentry"] = {"vsize": 141, "fees": {"base": 0.00001}}
     text = await call("get_mempool_entry", txid="ab" * 32)
@@ -75,16 +100,46 @@ async def test_mempool_entry_missing_points_at_the_confirmed_lookup(call, fake_r
 
 
 @pytest.mark.anyio
-async def test_raw_transaction_without_blockhash_explains_txindex(
-    call, fake_rpc
-) -> None:
+async def test_txindex_still_backfilling_is_reported_with_its_height(call, fake_rpc) -> None:
     fake_rpc.answers["getrawtransaction"] = RPCError(
         "No such mempool transaction. Use -txindex or provide a block hash", -5
     )
+    fake_rpc.answers["getindexinfo"] = {
+        "txindex": {"synced": False, "best_block_height": 938967}
+    }
+    fake_rpc.answers["getblockchaininfo"] = {"blocks": 974136}
     text = await call("get_raw_transaction", txid="ab" * 32)
-    assert "txindex" in text
+    assert "938,967 of 974,136" in text
     assert "blockhash" in text
-    assert fake_rpc.calls == [("getrawtransaction", ["ab" * 32, True])]
+    assert fake_rpc.calls[0] == ("getrawtransaction", ["ab" * 32, True])
+
+
+@pytest.mark.anyio
+async def test_txindex_absent_is_named_as_the_cause(call, fake_rpc) -> None:
+    fake_rpc.answers["getrawtransaction"] = RPCError("No such transaction", -5)
+    fake_rpc.answers["getindexinfo"] = {}
+    text = await call("get_raw_transaction", txid="ab" * 32)
+    assert "no txindex" in text
+    assert "blockhash" in text
+
+
+@pytest.mark.anyio
+async def test_synced_txindex_means_the_transaction_is_unknown(call, fake_rpc) -> None:
+    fake_rpc.answers["getrawtransaction"] = RPCError("No such transaction", -5)
+    fake_rpc.answers["getindexinfo"] = {"txindex": {"synced": True}}
+    text = await call("get_raw_transaction", txid="ab" * 32)
+    assert "neither the chain nor the mempool" in text
+    assert "blockhash" not in text
+
+
+@pytest.mark.anyio
+async def test_failed_diagnosis_falls_back_to_the_ambiguous_wording(call, fake_rpc) -> None:
+    # A broken getindexinfo must not replace the error the caller actually hit.
+    fake_rpc.answers["getrawtransaction"] = RPCError("No such transaction", -5)
+    fake_rpc.answers["getindexinfo"] = RPCError("boom", -32601)
+    text = await call("get_raw_transaction", txid="ab" * 32)
+    assert "backfilling or disabled" in text
+    assert "blockhash" in text
 
 
 @pytest.mark.anyio
@@ -129,7 +184,7 @@ async def test_fee_estimate_without_data_becomes_a_sentence(call, fake_rpc) -> N
     text = await call("estimate_smart_fee")
     assert "no fee estimate" in text
     assert "Insufficient data" in text
-    assert "get_block_stats" in text
+    assert "get_fee_history" in text
 
 
 @pytest.mark.anyio

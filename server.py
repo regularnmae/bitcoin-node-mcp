@@ -106,6 +106,58 @@ def _render(result: Any) -> str:
     return json.dumps(result, indent=2)
 
 
+_TXINDEX_MISS = (
+    "The node has no mempool transaction with that id, and its txindex did not "
+    "resolve it either: the index is either still backfilling or disabled. "
+    "Supply the transaction's `blockhash` -- find it with get_block_hash(height) "
+    "then get_block(hash, verbosity=2), then call again with it."
+)
+
+
+def _txindex_miss_text() -> str:
+    """Explain a -5 from getrawtransaction using the node's own index state.
+
+    Best-effort: any failure here falls back to the wording that covers both
+    causes, so a diagnostic call can never replace the error the caller hit.
+    """
+    try:
+        info = rpc.call("getindexinfo", ["txindex"])
+    except Exception as err:  # noqa: BLE001 - diagnostics, not the failure
+        logger.info("getindexinfo unavailable for the -5 message: %s", err)
+        return _TXINDEX_MISS
+    index = info.get("txindex") if isinstance(info, dict) else None
+    if not isinstance(index, dict):
+        return (
+            "This node has no txindex, so a confirmed transaction can only be "
+            "read with its blockhash: find it with get_block_hash(height) then "
+            "get_block(hash, verbosity=2), and call again with it."
+        )
+    if index.get("synced"):
+        return (
+            "The txindex is synced, so that transaction is in neither the chain "
+            "nor the mempool. Check the txid; if it is recent, this node has "
+            "simply not seen it."
+        )
+    height = index.get("best_block_height")
+    if not isinstance(height, int):
+        return _TXINDEX_MISS
+    tip = ""
+    try:
+        chain = rpc.call("getblockchaininfo")
+    except Exception as err:  # noqa: BLE001 - the tip height is a nicety
+        logger.info("getblockchaininfo unavailable for the -5 message: %s", err)
+    else:
+        blocks = chain.get("blocks") if isinstance(chain, dict) else None
+        if isinstance(blocks, int):
+            tip = f" of {blocks:,}"
+    return (
+        f"The txindex is still backfilling: it has reached block {height:,}{tip}, "
+        "so a transaction newer than that has no index entry yet. Find its block "
+        "with get_block_hash(height) then get_block(hash, verbosity=2), and pass "
+        "the blockhash."
+    )
+
+
 def _error_text(err: RPCError) -> str:
     if err.code is None:
         return err.message
@@ -236,6 +288,63 @@ def get_block_stats(height: Annotated[int, Field(ge=0)]) -> str:
 
 
 @mcp.tool(structured_output=False, annotations=_NODE_TOOLS)
+def get_fee_history(blocks: Annotated[int, Field(ge=1, le=144)] = 24) -> str:
+    """Return per-block feerate history for the most recent blocks.
+
+    What blocks actually paid, block by block, with the window's average and
+    range: the trend behind estimate_smart_fee's single number. Costs one
+    node call per block in the window. Feerates are in sat/vB.
+
+    Args:
+        blocks: Window size in blocks, 1 to 144 (default 24).
+    """
+    try:
+        info = rpc.call("getblockchaininfo")
+        tip = info.get("blocks") if isinstance(info, dict) else None
+        if not isinstance(tip, int):
+            return "Unexpected response from getblockchaininfo: no block height."
+        heights = range(max(0, tip - blocks + 1), tip + 1)
+        stats = [rpc.call("getblockstats", [height]) for height in heights]
+    except RPCError as err:
+        logger.warning("getblockstats failed: %s", err.message)
+        return _error_text(err)
+    except Exception as err:  # noqa: BLE001 - surfaced as text, never hidden
+        logger.exception("unexpected error in getblockstats")
+        return f"Unexpected error calling getblockstats: {err}"
+
+    history: list[dict[str, Any]] = []
+    for stat in stats:
+        if not isinstance(stat, dict):
+            continue
+        percentiles = stat.get("feerate_percentiles")
+        median = percentiles[2] if isinstance(percentiles, list) and len(percentiles) > 2 else None
+        history.append(
+            {
+                "height": stat.get("height"),
+                "avg_feerate": stat.get("avgfeerate"),
+                "median_feerate": median,
+                "txs": stat.get("txs"),
+            }
+        )
+    rates = [
+        row["avg_feerate"]
+        for row in history
+        if isinstance(row["avg_feerate"], (int, float))
+    ]
+    return _render(
+        {
+            "from_height": history[0]["height"] if history else None,
+            "to_height": history[-1]["height"] if history else None,
+            "blocks": len(history),
+            "avg_feerate": round(sum(rates) / len(rates), 2) if rates else None,
+            "min_avg_feerate": min(rates) if rates else None,
+            "max_avg_feerate": max(rates) if rates else None,
+            "history": history,
+        }
+    )
+
+
+@mcp.tool(structured_output=False, annotations=_NODE_TOOLS)
 def get_raw_transaction(txid: str, blockhash: str = "", verbose: bool = True) -> str:
     """Return a transaction by id.
 
@@ -258,14 +367,8 @@ def get_raw_transaction(txid: str, blockhash: str = "", verbose: bool = True) ->
         return _render(rpc.call("getrawtransaction", params))
     except RPCError as err:
         if err.code == -5 and not blockhash:
-            logger.info("getrawtransaction %s did not resolve via txindex", txid)
-            return (
-                "The node has no mempool transaction with that id, and its "
-                "txindex did not resolve it either: the index is either still "
-                "backfilling or disabled. Supply the transaction's `blockhash` "
-                "-- find it with get_block_hash(height) then "
-                "get_block(hash, verbosity=2), then call again with it."
-            )
+            logger.info("getrawtransaction %s did not resolve", txid)
+            return _txindex_miss_text()
         return _error_text(err)
     except Exception as err:  # noqa: BLE001 - surfaced as text, never hidden
         logger.exception("unexpected error in getrawtransaction")
@@ -393,8 +496,7 @@ def estimate_smart_fee(
             f"The node has no fee estimate for {conf_target} blocks: "
             + "; ".join(str(error) for error in result["errors"])
             + ". It needs a fuller set of recent blocks to model one; call "
-            "get_block_stats on a recent height to see what blocks actually "
-            "paid."
+            "get_fee_history to see what recent blocks actually paid."
         )
     return _render(result)
 

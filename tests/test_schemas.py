@@ -26,6 +26,7 @@ TOOLS = {
     "get_block",
     "get_block_header",
     "get_block_stats",
+    "get_fee_history",
     "get_raw_transaction",
     "get_mempool_entry",
     "decode_raw_transaction",
@@ -68,6 +69,7 @@ def test_text_tools_publish_no_output_schema(advertised: dict, name: str) -> Non
     [
         ("get_block_hash", "height", 0, None),
         ("get_block_stats", "height", 0, None),
+        ("get_fee_history", "blocks", 1, 144),
         ("get_tx_out", "n", 0, None),
         ("estimate_smart_fee", "conf_target", 1, 1008),
     ],

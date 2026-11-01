@@ -21,7 +21,7 @@ them from the code.
 ```sh
 uv run ruff check .            # lint (CI gate). No `ruff format`; line-length 100, rules E,F,I,UP,B,SIM
 uv run pyright                 # typecheck (CI gate); include list in [tool.pyright]
-uv run pytest -q               # 52 tests, ~0.3s, no network
+uv run pytest -q               # 59 tests, ~0.4s, no network
 uv run python scripts/smoke.py # boots the real app on loopback: /health, /ready, 401s, handshake
 uv add <pkg>                   # edits pyproject.toml AND re-locks — commit the uv.lock change
 uv lock --check                # CI drift gate

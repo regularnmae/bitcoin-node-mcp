@@ -6,7 +6,7 @@ No keys, no wallet, no chain writes: nothing here can move funds or change
 the chain. It shares the podman `npm-network` with the node and reaches it by
 container name.
 
-Sixteen tools, all read-only:
+Seventeen tools, all read-only:
 
 | Tool | What it does |
 | --- | --- |
@@ -16,6 +16,7 @@ Sixteen tools, all read-only:
 | `get_block` | A block by hash; verbosity 1 lists txids, 2 returns full transactions |
 | `get_block_header` | A block header by block hash |
 | `get_block_stats` | Per-block feerate, fee, size and UTXO-delta statistics |
+| `get_fee_history` | Per-block feerate trend over the last 1–144 blocks |
 | `get_raw_transaction` | A transaction by id; a `blockhash` only while the index backfills |
 | `get_mempool_entry` | One unconfirmed transaction's fee, vsize and ancestors |
 | `decode_raw_transaction` | Decode a serialised (hex) transaction |
@@ -40,17 +41,19 @@ details are still worth knowing:
 - **`txindex` backfills.** Turning it on does not need `-reindex`: Core reads
   the blocks it already has and builds the index in the background, which takes
   hours. Until it catches up, `get_raw_transaction` answers `-5` for a recent
-  transaction; the tool turns that into a message telling you to supply the
-  block, which you find with `get_block_hash(height)` then
-  `get_block(hash, verbosity=2)`. `get_index_info` shows the build progress.
+  transaction; it then reads the index state itself and names the height the
+  index has reached (or says it is disabled or synced), so the blockhash
+  fallback is explained rather than guessed. `get_index_info` reports the same
+  state on demand.
 - **`verbosity=2` is heavy.** A busy block holds thousands of transactions, so
   the full list runs to megabytes. Prefer verbosity 1 unless you are hunting a
   txid the index cannot resolve.
 
-Fee questions split in two: `estimate_smart_fee` is the node's own model, and
-`get_block_stats` is what a block actually paid. When the node has too little
-history to estimate, it answers with a sentence pointing at the latter instead
-of a bare `errors` array.
+Fee questions split in two: `estimate_smart_fee` is the node's own model,
+`get_block_stats` is what one block actually paid, and `get_fee_history` is the
+trend over the last day or so. When the node has too little history to
+estimate, it answers with a sentence pointing at the history instead of a bare
+`errors` array.
 
 `get_block` still special-cases the `-1 Block not available (pruned data)`
 reply in case the server is ever pointed at a pruned node, but this one keeps
@@ -123,7 +126,7 @@ Dependencies are managed with [uv](https://docs.astral.sh/uv/) from
 `pyproject.toml`; `uv.lock` is the exact closure (versions *and* hashes).
 
 ```sh
-uv run pytest -q                # 52 tests, ~0.3s, no network
+uv run pytest -q                # 59 tests, ~0.4s, no network
 uv run ruff check .             # lint
 uv run pyright                  # typecheck
 uv run python scripts/smoke.py  # boots the real app on loopback
