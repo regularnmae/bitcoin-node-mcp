@@ -6,11 +6,12 @@ No keys, no wallet, no chain writes: nothing here can move funds or change
 the chain. It shares the podman `npm-network` with the node and reaches it by
 container name.
 
-Thirteen tools, all read-only:
+Fourteen tools, all read-only:
 
 | Tool | What it does |
 | --- | --- |
 | `get_blockchain_info` | Chain, height, sync progress, difficulty and size on disk |
+| `get_index_info` | Index build state; how far the txindex has backfilled |
 | `get_block_hash` | Block hash at a height |
 | `get_block` | A block by hash; verbosity 1 lists txids, 2 returns full transactions |
 | `get_block_header` | A block header by block hash |
@@ -39,7 +40,7 @@ details are still worth knowing:
   hours. Until it catches up, `get_raw_transaction` answers `-5` for a recent
   transaction; the tool turns that into a message telling you to supply the
   block, which you find with `get_block_hash(height)` then
-  `get_block(hash, verbosity=2)`. `getindexinfo` shows the build progress.
+  `get_block(hash, verbosity=2)`. `get_index_info` shows the build progress.
 - **`verbosity=2` is heavy.** A busy block holds thousands of transactions, so
   the full list runs to megabytes. Prefer verbosity 1 unless you are hunting a
   txid the index cannot resolve.
@@ -107,7 +108,7 @@ Dependencies are managed with [uv](https://docs.astral.sh/uv/) from
 `pyproject.toml`; `uv.lock` is the exact closure (versions *and* hashes).
 
 ```sh
-uv run pytest -q                # 34 tests, ~0.1s, no network
+uv run pytest -q                # 37 tests, ~0.2s, no network
 uv run ruff check .             # lint
 uv run pyright                  # typecheck
 uv run python scripts/smoke.py  # boots the real app on loopback

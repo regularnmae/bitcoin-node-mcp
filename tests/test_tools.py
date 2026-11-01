@@ -35,6 +35,22 @@ async def test_block_hash_returns_bare_string(call, fake_rpc) -> None:
 
 
 @pytest.mark.anyio
+async def test_index_info_with_no_arguments_asks_for_every_index(call, fake_rpc) -> None:
+    fake_rpc.answers["getindexinfo"] = {"txindex": {"synced": False, "best_block_height": 932000}}
+    text = await call("get_index_info")
+    payload = json.loads(text)
+    assert payload["txindex"]["synced"] is False
+    assert fake_rpc.calls == [("getindexinfo", None)]
+
+
+@pytest.mark.anyio
+async def test_index_info_forwards_index_name_and_verbose(call, fake_rpc) -> None:
+    fake_rpc.answers["getindexinfo"] = {"txindex": {"synced": True}}
+    await call("get_index_info", index_name="txindex", verbose=True)
+    assert fake_rpc.calls == [("getindexinfo", ["txindex", True])]
+
+
+@pytest.mark.anyio
 async def test_raw_transaction_without_blockhash_explains_txindex(
     call, fake_rpc
 ) -> None:

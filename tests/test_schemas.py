@@ -21,6 +21,7 @@ import server
 
 TOOLS = {
     "get_blockchain_info",
+    "get_index_info",
     "get_block_hash",
     "get_block",
     "get_block_header",

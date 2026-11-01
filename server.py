@@ -53,7 +53,8 @@ mcp = MCPServer(
         "This is a full node with txindex enabled, so get_raw_transaction "
         "resolves a confirmed transaction by txid alone. If it answers -5 the "
         "txindex has not reached that transaction yet (it backfills in the "
-        "background): pass the blockhash instead, found by walking from "
+        "background): get_index_info reports how far it has got, and passing "
+        "the blockhash instead works now -- find it by walking from "
         "get_block_hash(height) to get_block(hash, verbosity=2). Nothing here "
         "moves funds or changes the chain."
     ),
@@ -127,6 +128,26 @@ def get_blockchain_info() -> str:
     -- `pruned` and `pruneheight`, the lowest height still on disk.
     """
     return _call("getblockchaininfo")
+
+
+@mcp.tool(structured_output=False, annotations=_NODE_TOOLS)
+def get_index_info(index_name: str = "", verbose: bool = False) -> str:
+    """Return the node's index build state, txindex included.
+
+    Each index carries `synced` and `best_block_height`. That is what
+    answers the question a -5 from get_raw_transaction leaves open: how far
+    the txindex has backfilled, and whether it is still running.
+
+    Args:
+        index_name: One index to report, e.g. "txindex". Empty (default)
+            reports every index the node has.
+        verbose: True for extra per-index detail, e.g. the recorded best
+            block hash; only meaningful alongside index_name.
+    """
+    # Core's positional signature is (index_name, verbose); sending neither
+    # is the "every index" form.
+    params: list[Any] | None = [index_name, verbose] if index_name or verbose else None
+    return _call("getindexinfo", params)
 
 
 @mcp.tool(structured_output=False, annotations=_NODE_TOOLS)
