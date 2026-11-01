@@ -1,3 +1,4 @@
+import asyncio
 import hmac
 import json
 import logging
@@ -80,6 +81,12 @@ MCP_ALLOW_ANONYMOUS = os.environ.get("MCP_ALLOW_ANONYMOUS", "") == "1"
 
 # Unauthenticated liveness path, for pollers that hold no token.
 HEALTH_PATH = "/health"
+
+# Readiness path: /health says the process is up, this says the node answers.
+# Deliberately separate -- a node outage must not fail a liveness probe, or
+# the container restarts in a loop while the node catches up.
+READY_PATH = "/ready"
+READY_TIMEOUT = 2.0
 
 # The env var the bearer token is read from (also the name in the quadlet
 # unit's EnvironmentFile and in ~/.config/opencode/opencode.json).
@@ -398,6 +405,30 @@ def get_difficulty() -> str:
     return _call("getdifficulty")
 
 
+async def _readiness() -> tuple[dict[str, Any], int]:
+    """Probe the node for `/ready`, off the event loop with a short timeout.
+
+    Returns the JSON body and status code: 200 with the chain state when the
+    node answers, 503 with the reason when it does not.
+    """
+    try:
+        info = await asyncio.to_thread(rpc.call, "getblockchaininfo", None, READY_TIMEOUT)
+    except RPCError as err:
+        logger.warning("/ready: the node is not answering: %s", err.message)
+        return {"status": "unready", "error": err.message}, 503
+    except Exception as err:  # noqa: BLE001 - reported, never raised at a probe
+        logger.exception("/ready: unexpected error")
+        return {"status": "unready", "error": str(err)}, 503
+    if not isinstance(info, dict):
+        return {"status": "unready", "error": "the node returned an unexpected body"}, 503
+    return {
+        "status": "ready",
+        "chain": info.get("chain"),
+        "blocks": info.get("blocks"),
+        "initialblockdownload": info.get("initialblockdownload"),
+    }, 200
+
+
 class BearerAuthMiddleware:
     """Pure-ASGI bearer auth in front of the streamable-HTTP app.
 
@@ -408,7 +439,8 @@ class BearerAuthMiddleware:
     debugging from inside npm-network wants.
 
     GET /health stays unauthenticated so a poller can say "up" without
-    holding the token; it says nothing else.
+    holding the token; it says nothing else. GET /ready does the same and
+    adds whether the node answers, on a short timeout, for the same reason.
     """
 
     def __init__(self, app: Any, token: str | None) -> None:
@@ -435,6 +467,14 @@ class BearerAuthMiddleware:
             from starlette.responses import JSONResponse
 
             response = JSONResponse({"status": "ok"})
+            await response(scope, receive, send)
+            return
+
+        if scope.get("path") == READY_PATH:
+            from starlette.responses import JSONResponse
+
+            body, status_code = await _readiness()
+            response = JSONResponse(body, status_code=status_code)
             await response(scope, receive, send)
             return
 

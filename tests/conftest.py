@@ -42,9 +42,13 @@ class FakeRPC:
     def __init__(self) -> None:
         self.calls: list[tuple[str, list[Any] | None]] = []
         self.answers: dict[str, Any] = {}
+        self.last_timeout: float | None = None
 
-    def call(self, method: str, params: list[Any] | None = None) -> Any:
+    def call(
+        self, method: str, params: list[Any] | None = None, timeout: float | None = None
+    ) -> Any:
         self.calls.append((method, params))
+        self.last_timeout = timeout
         answer = self.answers.get(method)
         if isinstance(answer, Exception):
             raise answer

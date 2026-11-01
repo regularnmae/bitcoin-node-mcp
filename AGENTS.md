@@ -21,8 +21,8 @@ them from the code.
 ```sh
 uv run ruff check .            # lint (CI gate). No `ruff format`; line-length 100, rules E,F,I,UP,B,SIM
 uv run pyright                 # typecheck (CI gate); include list in [tool.pyright]
-uv run pytest -q               # 49 tests, ~0.2s, no network
-uv run python scripts/smoke.py # boots the real app on a free loopback port: /health, 401s, handshake
+uv run pytest -q               # 52 tests, ~0.3s, no network
+uv run python scripts/smoke.py # boots the real app on loopback: /health, /ready, 401s, handshake
 uv add <pkg>                   # edits pyproject.toml AND re-locks — commit the uv.lock change
 uv lock --check                # CI drift gate
 podman build -t localhost/bitcoin-node-mcp:latest .   # single-stage Containerfile
@@ -63,7 +63,10 @@ live there, not here.
   (shape: `stack/deploy/examples/bitcoin-node-mcp/`); see that repo for the
   unit, the env-file location and the host port.
 - The server binds `0.0.0.0:8000` and serves `/mcp` (token-gated); `/health` is
-  open and answers exactly `{"status":"ok"}`.
+  open and answers exactly `{"status":"ok"}`. `/ready` is also open and probes
+  the node (`200` with chain state, `503` when it does not answer, 2s timeout);
+  the podman healthcheck must stay on `/health`, or a syncing node restart-loops
+  the container.
 
 ## Testing quirks
 

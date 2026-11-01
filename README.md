@@ -80,7 +80,14 @@ podman run -e BITCOIN_MCP_TOKEN=<token> \
 
 It listens on `0.0.0.0:8000` and serves streamable HTTP at `/mcp`. `GET
 /health` is unauthenticated and answers `{"status":"ok"}` — nothing more, so a
-poller can say "up" without holding the token.
+poller can say "up" without holding the token. `GET /ready` is open too and
+adds the node's answer: `200` with `chain`, `blocks` and
+`initialblockdownload`, or `503` with the reason, probed on a 2-second
+timeout.
+
+Keep the container healthcheck on `/health`. `/ready` stays `503` while the
+node syncs or is down, so gating podman on it would restart this server in a
+loop instead of reporting the node's state.
 
 ### Configuration
 
@@ -106,8 +113,9 @@ This container shares `npm-network` with `bitcoind`, `monerod`,
 stack: it speaks only to bitcoind's RPC port, and only read methods, so a
 prompt-injected client cannot reach a wallet or a spending RPC through it.
 
-The bearer token gates every request except `/health`; the comparison is
-constant-time. Startup fails without a token unless `MCP_ALLOW_ANONYMOUS=1`.
+The bearer token gates every request except `/health` and `/ready`, which
+report status only; the comparison is constant-time. Startup fails without a
+token unless `MCP_ALLOW_ANONYMOUS=1`.
 
 ## Development
 
@@ -115,7 +123,7 @@ Dependencies are managed with [uv](https://docs.astral.sh/uv/) from
 `pyproject.toml`; `uv.lock` is the exact closure (versions *and* hashes).
 
 ```sh
-uv run pytest -q                # 49 tests, ~0.2s, no network
+uv run pytest -q                # 52 tests, ~0.3s, no network
 uv run ruff check .             # lint
 uv run pyright                  # typecheck
 uv run python scripts/smoke.py  # boots the real app on loopback
